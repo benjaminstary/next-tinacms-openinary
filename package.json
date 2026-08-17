@@ -1,0 +1,56 @@
+{
+  "name": "next-tinacms-openinary",
+  "version": "0.1.0-beta.0",
+  "description": "TinaCMS media store for Openinary",
+  "license": "MIT",
+  "author": {
+    "name": "benjaminstary",
+    "url": "https://github.com/benjaminstary"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/benjaminstary/next-tinacms-openinary.git"
+  },
+  "type": "module",
+  "packageManager": "pnpm@11.17.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./handlers": {
+      "types": "./dist/handlers.d.ts",
+      "import": "./dist/handlers.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepack": "pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check:production-auth": "node -e \"if (process.env.NODE_ENV === 'production' && process.env.NEXT_PUBLIC_USE_LOCAL_CLIENT === '1') { console.error('NEXT_PUBLIC_USE_LOCAL_CLIENT must not be enabled in production'); process.exit(1) }\""
+  },
+  "peerDependencies": {
+    "next": ">=12",
+    "tinacms": ">=1"
+  },
+  "devDependencies": {
+    "@types/formidable": "^3.5.1",
+    "@types/node": "^26.2.0",
+    "next": "^16.3.1",
+    "tinacms": "^3.11.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "formidable": "^3.5.4"
+  }
+}
