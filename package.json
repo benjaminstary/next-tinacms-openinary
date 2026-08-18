@@ -24,6 +24,10 @@
       "types": "./dist/handlers.d.ts",
       "import": "./dist/handlers.js"
     },
+    "./app-router": {
+      "types": "./dist/app-router-handler.d.ts",
+      "import": "./dist/app-router-handler.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

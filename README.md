@@ -7,6 +7,8 @@ Use it when Tina editors need to browse, upload, select, and delete media stored
 ## Features
 
 - TinaCMS `MediaStore` compatibility.
+- Native App Router media handler.
+- Pages Router media handler for existing Pages Router applications.
 - Root and nested folder browsing.
 - Multi-file upload.
 - File deletion by stable media ID.
@@ -14,7 +16,6 @@ Use it when Tina editors need to browse, upload, select, and delete media stored
 - Tina Cloud token-aware fetch wrapper.
 - Server-only Openinary API key.
 - Openinary Cloud and self-hosted support.
-- Pages Router media proxy compatible with App Router sites.
 - Deterministic pagination over Openinary one-level listings.
 - Path traversal and media-root protection.
 
@@ -22,6 +23,11 @@ Use it when Tina editors need to browse, upload, select, and delete media stored
 
 ```bash
 pnpm add next-tinacms-openinary
+```
+
+For the Pages Router example, also install `@tinacms/auth` or use your own authorization integration:
+
+```bash
 pnpm add @tinacms/auth
 ```
 
@@ -29,7 +35,30 @@ The package requires:
 
 - Next.js `>=12` for the server handler.
 - TinaCMS `>=1` as a peer dependency.
-- Node.js runtime for the Pages API handler.
+- Node.js runtime for the server media handler.
+
+## App Router applications
+
+App Router applications use a native route handler:
+
+```text
+app/                         # your normal App Router pages
+app/api/openinary/media/     # native media endpoint
+  route.ts
+tina/config.ts               # Tina store registration
+```
+
+Create [`app/api/openinary/media/route.ts`](README.md:101) as described in [App Router media route](#app-router-media-route). The handler uses Web [`Request`](src/app-router-handler.ts:84) and [`Response`](src/app-router-handler.ts:12) objects and keeps Openinary secrets on the server.
+
+## Pages Router applications
+
+Pages Router applications can use the legacy [`createMediaHandler()`](src/handlers.ts:105) API route and Tina [`loadCustomStore`](https://tina.io/docs/reference/media-store/) configuration:
+
+```text
+pages/api/openinary/media.ts
+  -> createMediaHandler()
+  -> TinaCloudOpeninaryMediaStore
+```
 
 ## Environment variables
 
@@ -39,16 +68,13 @@ Set these variables in the consuming Next.js application:
 # Server-only. Never use NEXT_PUBLIC_ prefix.
 OPENINARY_URL=https://openinary.example.com
 OPENINARY_API_KEY=server-only-openinary-api-key
-
-# Public origin only. Safe to expose in browser code.
-NEXT_PUBLIC_OPENINARY_URL=https://openinary.example.com
 ```
 
-`OPENINARY_URL` must point to the Openinary public/API origin. `OPENINARY_API_KEY` must exist only in the server environment.
+[`OPENINARY_URL`](README.md:67) is the Openinary public/API origin used by the server media handler. [`OPENINARY_API_KEY`](README.md:68) must exist only in the server environment.
 
 ## Tina configuration
 
-Use `TinaCloudOpeninaryMediaStore` from Tina config. This wrapper receives Tina's client and uses `client.authProvider.fetchWithToken()` for media requests, matching the Cloudinary integration pattern.
+Use [`TinaCloudOpeninaryMediaStore`](src/openinary-tina-cloud-media-store.ts:14) from Tina config. This wrapper receives Tina's client and uses `client.authProvider.fetchWithToken()` for media requests.
 
 ```ts
 // tina/config.ts
@@ -68,11 +94,42 @@ export default defineConfig({
 });
 ```
 
-Do not return `OpeninaryMediaStore` directly when Tina Cloud authorization is required. Use `TinaCloudOpeninaryMediaStore`.
+Do not return [`OpeninaryMediaStore`](src/openinary-media-store.ts:7) directly when Tina Cloud authorization is required. Use [`TinaCloudOpeninaryMediaStore`](src/openinary-tina-cloud-media-store.ts:14).
 
-## Media proxy route
+## App Router media route
 
-Create `pages/api/openinary/media.ts` in the consuming application:
+Create [`app/api/openinary/media/route.ts`](README.md:101) in the consuming application:
+
+```ts
+import { createAppMediaHandler } from "next-tinacms-openinary/app-router";
+import { authorizeTinaRequest } from "@/lib/authorize-tina-request";
+
+const handler = createAppMediaHandler({
+  openinaryUrl: process.env.OPENINARY_URL!,
+  openinaryApiKey: process.env.OPENINARY_API_KEY!,
+  authorized: authorizeTinaRequest,
+});
+
+export const GET = handler;
+export const POST = handler;
+export const DELETE = handler;
+```
+
+The `authorized` callback must validate the current user/session in your application. It receives the Web [`Request`](src/app-router-handler.ts:84) and must return `false` for unauthorized requests.
+
+The route performs operations in this order:
+
+```text
+Tina token authorization
+  -> Openinary API request with server-only API key
+  -> mapped Tina media response
+```
+
+The browser calls only `/api/openinary/media`. It never calls Openinary directly.
+
+## Pages Router media route
+
+Existing Pages Router applications can keep using [`createMediaHandler()`](src/handlers.ts:105):
 
 ```ts
 import type { NextApiRequest } from "next";
@@ -85,40 +142,13 @@ export default createMediaHandler({
   openinaryUrl: process.env.OPENINARY_URL!,
   openinaryApiKey: process.env.OPENINARY_API_KEY!,
   authorized: async (request) => {
-    // Local Tina development only.
-    if (process.env.NEXT_PUBLIC_USE_LOCAL_CLIENT === "1") return true;
-
     const user = await isAuthorized(request as NextApiRequest);
     return Boolean(user?.verified);
   },
 });
 ```
 
-The route performs operations in this order:
-
-```text
-Tina token authorization
-  -> Openinary API request with server-only API key
-  -> mapped Tina media response
-```
-
-The browser calls only `/api/openinary/media`. It never calls Openinary directly.
-
-### Local development
-
-For local Tina development, you may set:
-
-```env
-NEXT_PUBLIC_USE_LOCAL_CLIENT=1
-```
-
-Remove this variable in production. Production must validate Tina authorization through `@tinacms/auth`.
-
-Deployment checklist:
-
-- Run `npm run check:production-auth` during production build/deploy validation.
-- Ensure `NODE_ENV=production` and `NEXT_PUBLIC_USE_LOCAL_CLIENT` is absent or not `1`.
-- Confirm production requests use Tina authorization; local bypass is development-only.
+Use the App Router handler for new App Router applications. The Pages Router handler remains available for backward compatibility.
 
 ## Image URLs and optimization
 
@@ -144,73 +174,13 @@ https://openinary.example.com/t/w_800,f_auto,q_auto/file.webp
 
 Do not send the same image through another optimizer unless that service is intentionally the sole public optimizer.
 
-### Openinary `next/image` loader
-
-Create `loader.js` in the consuming Next.js project. This loader receives the width requested by `next/image` and turns an original Openinary URL into a transformed Openinary URL:
-
-```js
-/* global process, URL */
-
-"use client";
-
-export default function openinaryImageLoader({ src, width, quality }) {
-  const openinaryUrl = (
-    process.env.NEXT_PUBLIC_OPENINARY_URL || "https://openinary.example.com"
-  ).replace(/\/$/, "");
-
-  try {
-    const source = new URL(src, openinaryUrl);
-    const origin = new URL(openinaryUrl);
-
-    if (source.origin === origin.origin && source.pathname.startsWith("/t/")) {
-      const assetPath = source.pathname.slice("/t/".length);
-      const transform = `w_${width},f_auto,q_${quality || "auto"}`;
-      return `${openinaryUrl}/t/${transform}/${assetPath}`;
-    }
-  } catch {
-    // Keep non-Openinary URLs unchanged.
-  }
-
-  return src;
-}
-```
-
-Connect the loader in your `next.config.ts`:
-
-```ts
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  images: {
-    loader: "custom",
-    loaderFile: "./loader.js",
-  },
-};
-
-export default nextConfig;
-```
-
-Use normal original Openinary URLs in your Tina fields:
-
-```tsx
-import Image from "next/image";
-
-export function HeroImage({ src, alt }: { src: string; alt: string }) {
-  return <Image src={src} alt={alt} width={1200} height={800} />;
-}
-```
-
-For an original value of `https://openinary.example.com/t/hero.jpg`, a request with `width={800}` produces:
-
-```text
-https://openinary.example.com/t/w_800,f_auto,q_auto/hero.jpg
-```
-
-`f_auto` lets Openinary choose the best supported format. `q_auto` selects automatic quality. The loader is public and contains no Openinary secret; only the origin is exposed.
+`f_auto` lets Openinary choose the best supported format. `q_auto` selects automatic quality.
 
 ## Openinary client options
 
-Browser-safe `OpeninaryMediaStore` accepts:
+### Browser-side store
+
+[`OpeninaryMediaStore`](src/openinary-media-store.ts:7) is a browser-safe Tina media store. It sends media operations to your local proxy endpoint; it does not receive or expose the Openinary API key.
 
 ```ts
 new OpeninaryMediaStore({
@@ -218,21 +188,32 @@ new OpeninaryMediaStore({
 });
 ```
 
-Use this direct store when a custom fetch/auth integration is already available. For Tina Cloud, prefer `TinaCloudOpeninaryMediaStore`.
+Options:
 
-Server `createMediaHandler()` accepts:
+- [`proxyUrl`](src/types.ts:4): local application endpoint that receives Tina media requests. Defaults to `/api/openinary/media`.
+- [`fetch`](src/types.ts:5): optional replacement for browser `fetch`, useful when an existing integration adds authentication, headers, tracing, or custom request behavior.
 
-- `openinaryUrl`
-- `openinaryApiKey`
-- `authorized` or legacy `authorize` callback
-- `mediaRoot`
-- `publicDeliveryUrl`
-- `acceptedMimeTypes` (defaults to `['image/*']`; set explicitly to broaden uploads)
-- `thumbnailTransformations`
+Use this store when a custom browser fetch/auth integration already exists. For Tina Cloud authorization, prefer [`TinaCloudOpeninaryMediaStore`](src/openinary-tina-cloud-media-store.ts:14), which uses Tina's token-aware fetch method.
+
+### Server-side handler
+
+[`createAppMediaHandler()`](src/app-router-handler.ts:84) and [`createMediaHandler()`](src/handlers.ts:105) accept the same Openinary connection and media configuration. The App Router handler uses [`OpeninaryAppServerOptions`](src/types.ts:38), whose authorization callback receives a Web [`Request`](src/app-router-handler.ts:84). The Pages Router handler uses [`OpeninaryServerOptions`](src/types.ts:15), whose authorization callback receives Next.js request and response objects.
+
+- [`openinaryUrl`](src/types.ts:8): Openinary API and public origin.
+- [`openinaryApiKey`](src/types.ts:9): server-only Openinary API key.
+- [`authorized`](src/types.ts:14) or legacy [`authorize`](src/types.ts:10): request authorization callback.
+- [`mediaRoot`](src/types.ts:18): logical path boundary for shared deployments.
+- [`publicDeliveryUrl`](src/types.ts:19): optional separate public delivery origin.
+- [`acceptedMimeTypes`](src/types.ts:21): accepted upload MIME types; defaults to `['image/*']`.
+- [`thumbnailTransformations`](src/types.ts:28): Openinary thumbnail transformation configuration.
+
+Do not pass server options or API keys to browser-side [`OpeninaryMediaStore`](src/openinary-media-store.ts:7).
 
 ## Openinary storage providers
 
-Openinary can use local storage or S3-compatible providers such as Hetzner Object Storage. Configure storage on Openinary, not in this Tina adapter:
+[Openinary documentation](https://docs.openinary.dev/) covers local storage and S3-compatible storage providers such as Hetzner Object Storage.
+
+Configure storage on Openinary, not in this Tina adapter:
 
 ```env
 STORAGE_REGION=fsn1
@@ -245,127 +226,9 @@ STORAGE_PUBLIC_URL=https://media.example.com
 
 ## Security
 
-- Keep `OPENINARY_API_KEY` server-only.
+- Keep [`OPENINARY_API_KEY`](README.md:68) server-only.
 - Keep Hetzner/S3 credentials inside Openinary server configuration.
 - Gate every proxy operation with Tina authorization.
-- Do not deploy with `NEXT_PUBLIC_USE_LOCAL_CLIENT=1`.
 - Use separate Openinary deployments for unrelated clients.
-- Use `mediaRoot` only as logical isolation for trusted shared deployments.
+- Use [`mediaRoot`](src/types.ts:18) only as logical isolation for trusted shared deployments.
 - Rotate keys exposed in chat, logs, screenshots, or source control.
-
-## Testing
-
-Package checks:
-
-```bash
-npm run typecheck
-npm test
-npm run build
-npm pack --dry-run
-```
-
-Consumer checks:
-
-```bash
-pnpm exec tsc --noEmit
-pnpm lint
-pnpm exec next build --turbopack
-```
-
-Manual Tina flow:
-
-1. Open Tina Media Manager.
-2. List root and nested folders.
-3. Upload an image.
-4. Insert it into a field.
-5. Save the document.
-6. Confirm preview remains current without browser refresh.
-7. Reload and confirm the same URL.
-8. Verify browser Network tab calls the local proxy, not Openinary directly.
-
-## Examples
-
-The package does not ship a standalone Next.js homepage. The API route shown above is a minimal copy-paste proxy reference.
-
-Use the Pages Router and App Router sections above with your own existing Tina application. The App Router preview wrapper is included inline because it belongs to the consuming application and depends on its page queries and route variables.
-
-## Pages Router applications
-
-Pages Router applications use the API route above and the Tina `loadCustomStore` configuration. No preview bridge is required.
-
-```text
-pages/api/openinary/media.ts
-  -> createMediaHandler()
-  -> TinaCloudOpeninaryMediaStore
-```
-
-## App Router applications
-
-The media handler is still a Pages Router API handler, but App Router applications can use it alongside `app/` routes:
-
-```text
-app/                 # your normal App Router pages
-pages/api/openinary/ # Node-only media proxy
-tina/config.ts       # Tina store registration
-```
-
-This hybrid approach keeps Openinary secrets and multipart parsing on the Node API route. The package does not currently expose a native App Router `Request`/`Response` handler.
-
-## App Router Tina preview synchronization
-
-Next App Router can refresh server props immediately after Tina saves. In some setups, those RSC props can briefly contain older content and overwrite Tina's live iframe state.
-
-Add a small consumer-side route-aware `useTinaPreview` wrapper:
-
-```tsx
-"use client";
-
-import { useEffect, useMemo, useState } from "react";
-import { useTina } from "tinacms/dist/react";
-
-export function useTinaPreview<T extends Record<string, unknown>>(props: {
-  query: string;
-  variables: Record<string, unknown>;
-  data: T;
-  experimental___selectFormByFormId?: () => string;
-}) {
-  const identity = useMemo(
-    () => JSON.stringify({ query: props.query, variables: props.variables }),
-    [props.query, props.variables],
-  );
-  const [state, setState] = useState(() => ({
-    identity,
-    data: props.data,
-  }));
-
-  useEffect(() => {
-    if (state.identity !== identity) {
-      setState({ identity, data: props.data });
-    }
-  }, [identity, props.data, state.identity]);
-
-  return useTina({
-    ...props,
-    data: state.identity === identity ? state.data : props.data,
-  });
-}
-```
-
-Use it in App Router client pages instead of direct `useTina()`:
-
-```tsx
-const { data } = useTinaPreview({
-  query,
-  variables,
-  data,
-  experimental___selectFormByFormId: () => "content/pages/home.json",
-});
-```
-
-The wrapper:
-
-- Preserves live Tina `updateData` state during same-route RSC refreshes.
-- Resets state when query or route variables change.
-- Avoids globally freezing initial data.
-
-Use this only for App Router preview synchronization. It is a consumer integration helper, not part of the media adapter itself.

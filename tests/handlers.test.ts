@@ -55,7 +55,7 @@ describe("media handler boundaries", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.list.mockResolvedValue({ files: [] });
-    mocks.readFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    mocks.readFile.mockResolvedValue(new Uint8Array([0xff, 0xd8, 0xff, 0x00]));
     mocks.unlink.mockResolvedValue(undefined);
   });
 
@@ -89,15 +89,40 @@ describe("media handler boundaries", () => {
 
   it("times out stalled authorization", async () => {
     const res = response();
+    let signal: AbortSignal | undefined;
     const handler = createMediaHandler({
       ...options,
       authorizationTimeoutMs: 1,
-      authorized: () => new Promise<boolean>(() => undefined),
+      authorized: (_req, _res, authorizationSignal) => {
+        signal = authorizationSignal;
+        return new Promise<boolean>(() => undefined);
+      },
     });
 
     await handler({ method: "GET", query: {} } as never, res as never);
 
     expect(res.statusCode).toBe(500);
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("enforces the Pages Router request-size limit", async () => {
+    const res = response();
+    const handler = createMediaHandler({
+      ...options,
+      maxUploadRequestSize: 10,
+    });
+
+    await handler(
+      {
+        method: "POST",
+        query: {},
+        headers: { "content-length": "11" },
+      } as never,
+      res as never,
+    );
+
+    expect(res.statusCode).toBe(413);
+    expect(mocks.formidable).not.toHaveBeenCalled();
   });
 
   it("rejects malformed and oversized pagination values", async () => {

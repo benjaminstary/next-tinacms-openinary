@@ -19,12 +19,14 @@ function media(
   const parts = id.split("/");
   const filename = parts.at(-1) ?? "";
   const directory = parts.slice(0, -1).join("/");
-  const explicitSrc = explicit
-    ? new URL(explicit, `${origin.replace(/\/$/, "")}/`).toString()
-    : undefined;
+  const deliveryOrigin = new URL(`${origin.replace(/\/$/, "")}/`);
+  const explicitUrl = explicit ? new URL(explicit, deliveryOrigin) : undefined;
+  const explicitSrc =
+    explicitUrl &&
+    explicitUrl.origin === deliveryOrigin.origin &&
+    explicitUrl.toString();
   const src =
-    explicitSrc &&
-    (type !== "file" || new URL(explicitSrc).pathname.startsWith("/t/"))
+    explicitSrc && (type !== "file" || explicitUrl?.pathname.startsWith("/t/"))
       ? explicitSrc
       : resolveDeliveryUrl(
           origin,

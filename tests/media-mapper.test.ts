@@ -52,4 +52,14 @@ describe("media mapping", () => {
     );
     expect(item.src).toBe("https://media.example/t/photo.jpg");
   });
+
+  it("does not trust explicit URLs from another origin", () => {
+    const [item] = mapListing(
+      {
+        files: [{ path: "photo.jpg", url: "https://evil.example/t/photo.jpg" }],
+      },
+      "https://media.example",
+    );
+    expect(item.src).toBe("https://media.example/t/photo.jpg");
+  });
 });

@@ -2,12 +2,12 @@ import { responseError } from "./errors.js";
 import { normalizeMediaPath, resolveDeliveryUrl } from "./media-path.js";
 import type {
   OpeninaryListing,
-  OpeninaryServerOptions,
+  OpeninaryClientOptions,
   OpeninaryUploadResult,
 } from "./types.js";
 export class OpeninaryClient {
   private fetcher: typeof fetch;
-  constructor(private options: OpeninaryServerOptions) {
+  constructor(private options: OpeninaryClientOptions) {
     this.fetcher = options.fetch ?? fetch;
   }
   private url(path: string): string {
@@ -45,6 +45,7 @@ export class OpeninaryClient {
           attempt < maxRetries &&
           (response.status === 429 || response.status >= 500)
         ) {
+          await response.body?.cancel();
           await new Promise((resolve) =>
             setTimeout(resolve, 100 * 2 ** attempt),
           );

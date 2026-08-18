@@ -8,6 +8,7 @@ import formidable, {
 import { OpeninaryClient } from "./openinary-client.js";
 import { assertMediaPath } from "./media-path.js";
 import { mapListing, mapUpload } from "./media-mapper.js";
+import { isSafeUploadFile } from "./upload-validation.js";
 import type { OpeninaryServerOptions } from "./types.js";
 export const mediaHandlerConfig = { api: { bodyParser: false } };
 const MAX_LIST_LIMIT = 1000;
@@ -73,22 +74,24 @@ function filesFromParsed(files: Files): FormidableFile[] {
   ) as FormidableFile[];
 }
 async function withTimeout<T>(
-  operation: Promise<T>,
+  operation: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
 ): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      operation,
+      operation(controller.signal),
       new Promise<T>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("Media authorization timed out")),
-          timeoutMs,
-        );
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error("Media authorization timed out"));
+        }, timeoutMs);
       }),
     ]);
   } finally {
     if (timer) clearTimeout(timer);
+    controller.abort();
   }
 }
 async function cleanupFiles(files: FormidableFile[]): Promise<void> {
@@ -115,8 +118,37 @@ export function createMediaHandler(options: OpeninaryServerOptions) {
       return;
     }
     try {
+      if (req.method === "POST" || req.method === "DELETE") {
+        const headers = req.headers ?? {};
+        const origin = headers.origin;
+        const allowedOrigins = options.allowedOrigins ?? [
+          `${headers["x-forwarded-proto"] ?? "http"}://${headers.host}`,
+        ];
+        if (origin && !allowedOrigins.includes(origin)) {
+          res.status(403).json({ error: "Cross-origin request denied" });
+          return;
+        }
+      }
+      if (req.method === "POST") {
+        const maxRequestSize =
+          options.maxUploadRequestSize ??
+          options.maxUploadTotalSize ??
+          200 * 1024 * 1024;
+        const contentLength = req.headers?.["content-length"];
+        const rawContentLength = Array.isArray(contentLength)
+          ? contentLength[0]
+          : contentLength;
+        if (
+          rawContentLength !== undefined &&
+          (!/^\d+$/.test(rawContentLength) ||
+            Number(rawContentLength) > maxRequestSize)
+        ) {
+          res.status(413).json({ error: "Upload request too large" });
+          return;
+        }
+      }
       const authorized = await withTimeout(
-        Promise.resolve(authorization(req, res)),
+        (signal) => Promise.resolve(authorization(req, res, signal)),
         options.authorizationTimeoutMs ?? 10_000,
       );
       if (authorized === false) {
@@ -193,33 +225,22 @@ export function createMediaHandler(options: OpeninaryServerOptions) {
         }
         const acceptedMimeTypes =
           options.acceptedMimeTypes ?? DEFAULT_ACCEPTED_MIME_TYPES;
-        if (
-          parsed.files.some(
-            (file) =>
-              !isAcceptedMimeType(
-                file.mimetype ?? "application/octet-stream",
-                acceptedMimeTypes,
-              ),
-          )
-        ) {
-          res.status(415).json({ error: "Unsupported media type" });
-          return;
-        }
         let results;
         try {
-          results = await client.upload(
-            directory,
-            await Promise.all(
-              parsed.files.map(async (file) =>
-                Object.assign(
-                  new Blob([await readFile(file.filepath)], {
-                    type: file.mimetype ?? "application/octet-stream",
-                  }),
-                  { name: file.originalFilename ?? "upload" },
-                ),
-              ),
-            ),
-          );
+          results = [];
+          for (const file of parsed.files) {
+            const blob = Object.assign(
+              new Blob([await readFile(file.filepath)], {
+                type: file.mimetype ?? "application/octet-stream",
+              }),
+              { name: file.originalFilename ?? "upload" },
+            );
+            if (!(await isSafeUploadFile(blob, acceptedMimeTypes))) {
+              res.status(415).json({ error: "Unsupported media type" });
+              return;
+            }
+            results.push(...(await client.upload(directory, [blob])));
+          }
         } catch (error) {
           console.error("Openinary media upload failed", error);
           res.status(502).json({ error: "Openinary upload failed" });

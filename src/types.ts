@@ -4,31 +4,47 @@ export interface OpeninaryOptions {
   proxyUrl?: string;
   fetch?: typeof fetch;
 }
-export interface OpeninaryServerOptions {
+export interface OpeninaryClientOptions {
   openinaryUrl: string;
   openinaryApiKey: string;
+  publicDeliveryUrl?: string;
+  requestTimeoutMs?: number;
+  maxRequestRetries?: number;
+  fetch?: typeof fetch;
+}
+export interface OpeninaryServerOptions extends OpeninaryClientOptions {
   authorize?: (
     req: NextApiRequest,
     res: NextApiResponse,
+    signal?: AbortSignal,
   ) => Promise<boolean | void> | boolean | void;
   authorized?: (
     req: NextApiRequest,
     res: NextApiResponse,
+    signal?: AbortSignal,
   ) => Promise<boolean | void> | boolean | void;
   mediaRoot?: string;
-  publicDeliveryUrl?: string;
   acceptedMimeTypes?: string[];
   maxUploadFileSize?: number;
   maxUploadTotalSize?: number;
   maxUploadFields?: number;
   maxUploadFiles?: number;
+  maxUploadRequestSize?: number;
   authorizationTimeoutMs?: number;
-  requestTimeoutMs?: number;
-  maxRequestRetries?: number;
+  allowedOrigins?: string[];
   thumbnailTransformations?: Partial<
     Record<"75x75" | "400x400" | "1000x1000", string>
   >;
-  fetch?: typeof fetch;
+}
+export type AppRouterAuthorize = (
+  request: Request,
+  signal?: AbortSignal,
+) => Promise<boolean | void> | boolean | void;
+export interface OpeninaryAppServerOptions
+  extends Omit<OpeninaryServerOptions, "authorized" | "authorize"> {
+  authorized?: AppRouterAuthorize;
+  authorize?: AppRouterAuthorize;
+  allowedOrigins?: string[];
 }
 export interface OpeninaryEntry {
   path: string;
