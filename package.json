@@ -48,11 +48,11 @@
   },
   "devDependencies": {
     "@types/formidable": "^3.5.1",
-    "@types/node": "^26.2.0",
-    "next": "^16.3.1",
-    "tinacms": "^3.11.0",
+    "@types/node": "^26.4.1",
+    "next": "^16.3.4",
+    "tinacms": "^3.12.1",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "formidable": "^3.5.4"
