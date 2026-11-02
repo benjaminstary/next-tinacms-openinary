@@ -1,6 +1,6 @@
 {
   "name": "next-tinacms-openinary",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "TinaCMS media store for Openinary",
   "license": "MIT",
   "author": {
@@ -48,11 +48,11 @@
   },
   "devDependencies": {
     "@types/formidable": "^3.5.1",
-    "@types/node": "24.10.1",
-    "next": "^16.3.4",
-    "tinacms": "^3.12.1",
+    "@types/node": "26.6.6",
+    "next": "^16.4.4",
+    "tinacms": "^3.15.1",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "5.0.5"
   },
   "dependencies": {
     "formidable": "^3.5.4"
